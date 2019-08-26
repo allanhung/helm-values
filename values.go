@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
-	"io/ioutil"
+
 	"gopkg.in/yaml.v2"
-	"io"
 )
 
 const (
@@ -19,15 +20,48 @@ const (
 type valuesCmd struct {
 	chartPath    string
 	values       valueFiles
+	valTemplate  string
+	env          string
+	service      string
 	outputDir    string
 	backupSuffix string
 }
 
 func (cmd *valuesCmd) run() error {
-	cmd.values.Insert(path.Join(cmd.chartPath, defaultValuesFilename), 0)
-	vv, err := vals(cmd.values)
-	if err != nil {
-		return err
+	var vv []byte
+	var err error
+	if cmd.valTemplate == "" {
+		cmd.values.Insert(path.Join(cmd.chartPath, defaultValuesFilename), 0)
+		vv, err = vals(cmd.values)
+		if err != nil {
+			return err
+		}
+	} else {
+		baseYaml := yaml.MapSlice{}
+		envYaml := yaml.MapSlice{}
+		serviceYaml := yaml.MapSlice{}
+		baseYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "default")
+		if err != nil {
+			return err
+		}
+		if cmd.env != "" {
+			envYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "env."+cmd.env)
+			if err != nil {
+				return err
+			}
+			baseYaml = mergeValues(baseYaml, envYaml)
+		}
+		if cmd.service != "" {
+			serviceYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "service."+cmd.service)
+			if err != nil {
+				return err
+			}
+			baseYaml = mergeValues(baseYaml, serviceYaml)
+		}
+		vv, err = yaml.Marshal(baseYaml)
+		if err != nil {
+			return err
+		}
 	}
 	if cmd.outputDir != "" {
 		return writeToFile(cmd.outputDir, defaultValuesFilename, cmd.backupSuffix, vv)
@@ -106,6 +140,47 @@ func ensureDirectoryForFile(file string) error {
 	}
 
 	return os.MkdirAll(baseDir, defaultDirectoryPermission)
+}
+
+// vals merges values from files specified via -f/--values
+func readTemplate(templateFile, tag string) (yaml.MapSlice, error) {
+	currentMap := yaml.MapSlice{}
+
+	var bytes []byte
+	var err error
+	if strings.TrimSpace(templateFile) == "-" {
+		bytes, err = ioutil.ReadAll(os.Stdin)
+	} else {
+		bytes, err = ioutil.ReadFile(templateFile)
+	}
+
+	if err != nil {
+		return currentMap, err
+	}
+
+	if err := yaml.Unmarshal(bytes, &currentMap); err != nil {
+		return currentMap, fmt.Errorf("failed to parse %s: %s", templateFile, err)
+	}
+
+	taglist := strings.Split(tag, ".")
+	if len(taglist) == 1 {
+		for _, item := range currentMap {
+			if item.Key == tag {
+				return item.Value.(yaml.MapSlice), nil
+			}
+		}
+	} else if len(taglist) == 2 {
+		for _, item := range currentMap {
+			if item.Key == taglist[0] {
+				for _, subitem := range item.Value.(yaml.MapSlice) {
+					if subitem.Key == taglist[1] {
+						return subitem.Value.(yaml.MapSlice), nil
+					}
+				}
+			}
+		}
+	}
+	return nil, nil
 }
 
 // vals merges values from files specified via -f/--values
