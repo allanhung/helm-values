@@ -31,8 +31,7 @@ Flags:
   -o, --output-dir string      writes the merged values to files in output-dir instead of stdout
   -f, --values valueFiles      specify values in a YAML file (can specify multiple) (default [])
   -t, --value-template string  specify value template in a YAML file
-  -e, --env string             specify envirnment tag in template
-  -s, --service string         specify service tag in template
+  -s, --section                specify section in values template file (can specify multiple)
 ```
 
 ## Example
@@ -72,7 +71,7 @@ The script for package different environments chart archive:
 $ helm values mychart --values myenv/sit.yaml --output-dir mychart
 
 # Merge sit by template
-$ helm values mychart -t values_template.yaml -e prod -s mysvc  --output-dir mychart
+$ helm values mychart -t values_template.yaml -s default -s env.prod -s service.mysvc --output-dir mychart
 
 $ helm values mychart --values myenv/sit.yaml --output-dir mychart
 # Package

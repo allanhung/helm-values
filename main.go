@@ -49,8 +49,7 @@ func main() {
 	f := cmd.Flags()
 	f.VarP(&valuesCmd.values, "values", "f", "specify values in a YAML file (can specify multiple)")
 	f.StringVarP(&valuesCmd.valTemplate, "value-template", "t", "", "specify value template in a YAML file")
-	f.StringVarP(&valuesCmd.env, "env", "e", "", "envirnment in value-template")
-	f.StringVarP(&valuesCmd.service, "service", "s", "", "service in value-template")
+	f.VarP(&valuesCmd.sections, "section", "s", "specify section in values template file (can specify multiple)")
 	f.StringVarP(&valuesCmd.outputDir, "output-dir", "o", "", "writes the merged values to files in output-dir instead of stdout")
 	f.StringVarP(&valuesCmd.backupSuffix, "backup-suffix", "", ".bak", "suffix append to values.yaml if values.yaml already exist in output-dir")
 

@@ -14,15 +14,14 @@ import (
 
 const (
 	defaultDirectoryPermission = 0755
-	defaultValuesFilename      = "values.yaml"
+	defaultValuesFilename			= "values.yaml"
 )
 
 type valuesCmd struct {
 	chartPath    string
 	values       valueFiles
 	valTemplate  string
-	env          string
-	service      string
+	sections     sections
 	outputDir    string
 	backupSuffix string
 }
@@ -37,28 +36,7 @@ func (cmd *valuesCmd) run() error {
 			return err
 		}
 	} else {
-		baseYaml := yaml.MapSlice{}
-		envYaml := yaml.MapSlice{}
-		serviceYaml := yaml.MapSlice{}
-		baseYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "default")
-		if err != nil {
-			return err
-		}
-		if cmd.env != "" {
-			envYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "env."+cmd.env)
-			if err != nil {
-				return err
-			}
-			baseYaml = mergeValues(baseYaml, envYaml)
-		}
-		if cmd.service != "" {
-			serviceYaml, err = readTemplate(path.Join(cmd.chartPath, cmd.valTemplate), "service."+cmd.service)
-			if err != nil {
-				return err
-			}
-			baseYaml = mergeValues(baseYaml, serviceYaml)
-		}
-		vv, err = yaml.Marshal(baseYaml)
+		vv, err = valsections(path.Join(cmd.chartPath, cmd.valTemplate), cmd.sections)
 		if err != nil {
 			return err
 		}
@@ -142,12 +120,30 @@ func ensureDirectoryForFile(file string) error {
 	return os.MkdirAll(baseDir, defaultDirectoryPermission)
 }
 
-// vals merges values from files specified via -f/--values
-func readTemplate(templateFile, tag string) (yaml.MapSlice, error) {
-	currentMap := yaml.MapSlice{}
+func getSection(template yaml.MapSlice, tag []string) (yaml.MapSlice, error) {
+	if len(tag) > 1 {
+		for _, item := range template {
+			if item.Key == tag[0] {
+				return getSection(item.Value.(yaml.MapSlice), tag[1: len(tag)])
+			}
+		}
+	} else {
+		for _, item := range template {
+			if item.Key == tag[0] {
+				return item.Value.(yaml.MapSlice), nil
+			}
+    }
+	}
+	return yaml.MapSlice{}, nil
+}
 
+// vals merges values from template sections specified via -s/--sections
+func valsections(templateFile string, sections sections) ([]byte, error) {
 	var bytes []byte
 	var err error
+	template := yaml.MapSlice{}
+	base := yaml.MapSlice{}
+
 	if strings.TrimSpace(templateFile) == "-" {
 		bytes, err = ioutil.ReadAll(os.Stdin)
 	} else {
@@ -155,32 +151,27 @@ func readTemplate(templateFile, tag string) (yaml.MapSlice, error) {
 	}
 
 	if err != nil {
-		return currentMap, err
+		return []byte{}, err
 	}
 
-	if err := yaml.Unmarshal(bytes, &currentMap); err != nil {
-		return currentMap, fmt.Errorf("failed to parse %s: %s", templateFile, err)
+	if err := yaml.Unmarshal(bytes, &template); err != nil {
+		return []byte{}, fmt.Errorf("failed to parse %s: %s", templateFile, err)
 	}
 
-	taglist := strings.Split(tag, ".")
-	if len(taglist) == 1 {
-		for _, item := range currentMap {
-			if item.Key == tag {
-				return item.Value.(yaml.MapSlice), nil
-			}
+	// User specified a sections via -f/--sections
+	for _, section := range sections {
+		// currentMap := map[string]interface{}{}
+		currentMap, err := getSection(template, strings.Split(section,"."))
+
+		if err != nil {
+			return []byte{}, err
 		}
-	} else if len(taglist) == 2 {
-		for _, item := range currentMap {
-			if item.Key == taglist[0] {
-				for _, subitem := range item.Value.(yaml.MapSlice) {
-					if subitem.Key == taglist[1] {
-						return subitem.Value.(yaml.MapSlice), nil
-					}
-				}
-			}
-		}
+
+		// Merge with the previous map
+		base = mergeValues(base, currentMap)
 	}
-	return nil, nil
+
+	return yaml.Marshal(base)
 }
 
 // vals merges values from files specified via -f/--values
@@ -285,6 +276,23 @@ func (v *valueFiles) Type() string {
 func (v *valueFiles) Set(value string) error {
 	for _, filePath := range strings.Split(value, ",") {
 		*v = append(*v, filePath)
+	}
+	return nil
+}
+
+type sections	 []string
+
+func (v *sections) String() string {
+	return fmt.Sprint(*v)
+}
+
+func (v *sections) Type() string {
+	return "sections"
+}
+
+func (v *sections) Set(value string) error {
+	for _, section := range strings.Split(value, ",") {
+		*v = append(*v, section)
 	}
 	return nil
 }
